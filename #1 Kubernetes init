@@ -1,0 +1,63 @@
+# 노드 반절 정도는 swapoff를 해주지 않았길래 그냥 공통으로 작성해버림
+# https://kubernetes.io/docs/setup/production-environment/container-runtimes/
+# 참고했음
+swapoff -a
+# 컨테이너드 가져오기
+wget https://github.com/containerd/containerd/releases/download/v1.6.15/containerd-1.6.15-linux-amd64.tar.gz
+#압축 해제
+tar Cxzvf /usr/local containerd-1.6.15-linux-amd64.tar.gz
+# 데몬 리로드, 컨테이너드 사용
+systemctl daemon-reload
+systemctl enable --now containerd
+# runc 다운로드
+wget https://github.com/opencontainers/runc/releases/download/v1.1.4/runc.amd64
+# runc 설치
+install -m 755 runc.amd64 /usr/local/sbin/runc
+# cni plugin 다운로드
+wget https://github.com/containernetworking/plugins/releases/download/v1.1.1/cni-plugins-linux-amd64-v1.1.1.tgz
+#압축해제
+mkdir -p /opt/cni/bin
+sudo xzvf /opt/cni/bin cni-plugins-linux-amd64-v1.1.1.tgz
+# 도커, 도커엔진, 컨테이너드, 런씨 그냥 싹다 삭제(k8s-도커 레퍼런스에서 이렇게 하라고 했는데
+# 왜 이렇게 쓴건진 이해가 잘 안됨. 다운로드 하라고 해놓고 바로 삭제 ? 흠
+# 이유를 아신다면 알려주시길 바래요
+sudo apt-get remove docker docker-engine docker.io containerd runc
+sudo apt-get update
+# 다시 설치,, 도커 공식 문서 참고함
+# https://docs.docker.com/engine/install/ubuntu/
+sudo apt-get install \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo docker run hello-world
+#IPv4 포워딩 및 iptables에서 브리지된 트래픽 확인
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# sysctl 파라미터 재부팅해도 유지되도록
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+# sysctl 적용
+sudo sysctl --system
+# 컨테이너드 disabled_plugins 그냥 삭제해버림(cri 비활성화 오류 해결)
+sudo sed -i '/disabled_plugins/d' /etc/containerd/config.toml
+# 컨테이너드 재시작
+systemctl restart containerd
+# kubeadm join 당신의 조인 코드를 넣어주세요
